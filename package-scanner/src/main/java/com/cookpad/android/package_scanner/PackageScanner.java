@@ -27,17 +27,17 @@ public class PackageScanner {
 
     private static final String EXTRACTED_SUFFIX = ".zip";
 
-    static List<File> secondaryDexPath(Context context)
+    static List<File> secondaryDexFiles(Context context)
             throws IOException {
         ApplicationInfo applicationInfo = context.getApplicationInfo();
         File dexDir = new File(applicationInfo.dataDir, SECONDARY_FOLDER_NAME);
         return package_scanner_MultiDexExtractor.load(context, applicationInfo, dexDir, false);
     }
 
-    static List<String> secondaryDex(Context context)
+    static List<String> secondaryDexClassNames(Context context)
             throws PackageManager.NameNotFoundException, IOException {
         List<String> classNames = new ArrayList<>();
-        for (File file : secondaryDexPath(context)) {
+        for (File file : secondaryDexFiles(context)) {
             String path = file.getAbsolutePath();
             try {
                 DexFile dexfile;
@@ -58,8 +58,17 @@ public class PackageScanner {
         return classNames;
     }
 
-    public static <T> Set<Class<? extends T>> findSubclasses(Context context, Class<T> targetClass) {
+    public static <T> Set<Class<? extends T>> findConcreteSubclasses(Context context, Class<T> targetClass) {
+        Set<Class<? extends T>> classes = new HashSet<>();
+        for (Class<? extends T> c : findSubclasses(context, targetClass)) {
+            if (!Modifier.isAbstract(c.getModifiers())) {
+                classes.add(c);
+            }
+        }
+        return classes;
+    }
 
+    public static <T> Set<Class<? extends T>> findSubclasses(Context context, Class<T> targetClass) {
         String packageName = context.getPackageName();
         String sourcePath = context.getApplicationInfo().sourceDir;
         List<String> paths = new ArrayList<>();
@@ -85,7 +94,7 @@ public class PackageScanner {
                 }
             }
 
-            paths.addAll(secondaryDex(context));
+            paths.addAll(secondaryDexClassNames(context));
 
             for (String path : paths) {
                 File file = new File(path);
@@ -131,9 +140,7 @@ public class PackageScanner {
 
             try {
                 Class<?> discoveredClass = Class.forName(className, false, classLoader);
-                if (targetClass.isAssignableFrom(discoveredClass)
-                        && !Modifier.isAbstract(discoveredClass.getModifiers())) {
-
+                if (targetClass.isAssignableFrom(discoveredClass)) {
                     classes.add(PackageScanner.<T>uncheckedClassCast(discoveredClass));
                 }
             } catch (NoClassDefFoundError | ClassNotFoundException | IncompatibleClassChangeError e) {

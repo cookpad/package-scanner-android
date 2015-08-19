@@ -1,6 +1,7 @@
 package com.cookpad.android.package_scanner.test;
 
 import com.cookpad.android.package_scanner.PackageScanner;
+import com.cookpad.android.package_scanner.test.fixture.AbstractDerived;
 import com.cookpad.android.package_scanner.test.fixture.Base;
 import com.cookpad.android.package_scanner.test.fixture.ConcreteDerived;
 import com.cookpad.android.package_scanner.test.fixture.DerivedFromAbstractDerived;
@@ -24,14 +25,28 @@ public class PackageScannerTest {
     }
 
     @Test
-    public void testScanClassesInTests() throws Exception {
+    public void findSubclasses() throws Exception {
         Set<Class<? extends Base>> classes = PackageScanner.findSubclasses(getContext(), Base.class);
 
-        assertThat(classes.size(), is(4));
-
-        assertThat(classes, contains(
-                ConcreteDerived.class,
+        assertThat(classes.size(), is(5));
+        assertThat(classes, containsInAnyOrder(
                 Base.class,
+                AbstractDerived.class,
+                ConcreteDerived.class,
+                DerivedFromAbstractDerived.class,
+                DerivedFromConcreteDerived.class
+                ));
+    }
+
+    @Test
+    public void findConcreteSubclasses() throws Exception {
+        Set<Class<? extends Base>> classes = PackageScanner.findConcreteSubclasses(getContext(),
+                Base.class);
+
+        assertThat(classes.size(), is(4));
+        assertThat(classes, containsInAnyOrder(
+                Base.class,
+                ConcreteDerived.class,
                 DerivedFromAbstractDerived.class,
                 DerivedFromConcreteDerived.class));
     }
