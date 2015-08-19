@@ -27,14 +27,14 @@ public class PackageScanner {
 
     private static final String EXTRACTED_SUFFIX = ".zip";
 
-    public static List<File> secondaryDexPath(Context context)
+    static List<File> secondaryDexPath(Context context)
             throws IOException {
         ApplicationInfo applicationInfo = context.getApplicationInfo();
         File dexDir = new File(applicationInfo.dataDir, SECONDARY_FOLDER_NAME);
         return package_scanner_MultiDexExtractor.load(context, applicationInfo, dexDir, false);
     }
 
-    public static List<String> secondaryDex(Context context)
+    static List<String> secondaryDex(Context context)
             throws PackageManager.NameNotFoundException, IOException {
         List<String> classNames = new ArrayList<>();
         for (File file : secondaryDexPath(context)) {
@@ -42,7 +42,7 @@ public class PackageScanner {
             try {
                 DexFile dexfile;
                 if (path.endsWith(EXTRACTED_SUFFIX)) {
-                    //NOT use new DexFile(path), because it will throw "permission error in /data/dalvik-cache"
+                    // NOT use new DexFile(path), because it will throw "permission error in /data/dalvik-cache"
                     dexfile = DexFile.loadDex(path, path + ".tmp", 0);
                 } else {
                     dexfile = new DexFile(path);
@@ -52,15 +52,13 @@ public class PackageScanner {
                     classNames.add(dexEntries.nextElement());
                 }
             } catch (IOException e) {
-                throw new IOException("Error at loading dex file '" +
-                        path + "'");
+                throw new IOException("Error at loading dex file '" + path + "'");
             }
         }
         return classNames;
     }
 
-    public static <T> List<Class<? extends T>> searchClasses(Context context,
-            Class<T> targetClass) {
+    public static <T> Set<Class<? extends T>> findSubclasses(Context context, Class<T> targetClass) {
 
         String packageName = context.getPackageName();
         String sourcePath = context.getApplicationInfo().sourceDir;
@@ -91,21 +89,21 @@ public class PackageScanner {
 
             for (String path : paths) {
                 File file = new File(path);
-                classes = searchClasses(file, packageName, context.getClassLoader(), targetClass,
+                classes = findSubclasses(file, packageName, context.getClassLoader(), targetClass,
                         classes);
             }
         } catch (IOException | PackageManager.NameNotFoundException e) {
-            Log.w(TAG, "searchClasses", e);
+            Log.w(TAG, "findSubclasses", e);
         }
-        return new ArrayList<>(classes);
+        return classes;
     }
 
-    private static <T> Set<Class<? extends T>> searchClasses(File path, String packageName,
-            ClassLoader classLoader, Class<? extends T> targetClass,
+    static <T> Set<Class<? extends T>> findSubclasses(File path, String packageName, ClassLoader classLoader,
+            Class<? extends T> targetClass,
             Set<Class<? extends T>> classes) {
         if (path.isDirectory()) {
             for (File file : path.listFiles()) {
-                classes = searchClasses(file, packageName, classLoader, targetClass, classes);
+                classes = findSubclasses(file, packageName, classLoader, targetClass, classes);
             }
             return classes;
         } else {
@@ -133,14 +131,13 @@ public class PackageScanner {
 
             try {
                 Class<?> discoveredClass = Class.forName(className, false, classLoader);
-                if (!discoveredClass.equals(targetClass)
-                        && targetClass.isAssignableFrom(discoveredClass)
+                if (targetClass.isAssignableFrom(discoveredClass)
                         && !Modifier.isAbstract(discoveredClass.getModifiers())) {
 
                     classes.add(PackageScanner.<T>uncheckedClassCast(discoveredClass));
                 }
             } catch (NoClassDefFoundError | ClassNotFoundException | IncompatibleClassChangeError e) {
-                Log.w(TAG, "searchClasses", e);
+                Log.w(TAG, "findSubclasses", e);
             }
 
             return classes;
@@ -148,7 +145,7 @@ public class PackageScanner {
     }
 
     @SuppressWarnings("unchecked")
-    private static <T> Class<? extends T> uncheckedClassCast(Class<?> k) {
+    static <T> Class<? extends T> uncheckedClassCast(Class<?> k) {
         return (Class<T>) k;
     }
 }

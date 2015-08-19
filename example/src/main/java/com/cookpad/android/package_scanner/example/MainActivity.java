@@ -8,6 +8,8 @@ import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
 
+import java.util.ArrayList;
+
 public class MainActivity extends AppCompatActivity {
 
     @Override
@@ -17,6 +19,7 @@ public class MainActivity extends AppCompatActivity {
 
         ListView listView = (ListView) findViewById(R.id.list);
         listView.setAdapter(
-                new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, PackageScanner.searchClasses(this, View.class)));
+                new ArrayAdapter<>(this, android.R.layout.simple_list_item_1,
+                        new ArrayList<>(PackageScanner.findSubclasses(this, View.class))));
     }
 }
