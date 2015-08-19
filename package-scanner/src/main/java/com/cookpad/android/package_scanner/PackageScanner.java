@@ -13,6 +13,7 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
@@ -26,6 +27,10 @@ public class PackageScanner {
             + "secondary-dexes";
 
     private static final String EXTRACTED_SUFFIX = ".zip";
+
+    static boolean runningOnAndroid() {
+        return System.getProperty("java.vm.name").equals("Dalvik");
+    }
 
     static List<File> secondaryDexFiles(Context context)
             throws IOException {
@@ -47,9 +52,9 @@ public class PackageScanner {
                 } else {
                     dexfile = new DexFile(path);
                 }
-                Enumeration<String> dexEntries = dexfile.entries();
-                while (dexEntries.hasMoreElements()) {
-                    classNames.add(dexEntries.nextElement());
+
+                for (String className : asIterable(dexfile.entries())) {
+                    classNames.add(className);
                 }
             } catch (IOException e) {
                 throw new IOException("Error at loading dex file '" + path + "'");
@@ -58,7 +63,8 @@ public class PackageScanner {
         return classNames;
     }
 
-    public static <T> Set<Class<? extends T>> findConcreteSubclasses(Context context, Class<T> targetClass) {
+    public static <T> Set<Class<? extends T>> findConcreteSubclasses(Context context,
+            Class<T> targetClass) {
         Set<Class<? extends T>> classes = new HashSet<>();
         for (Class<? extends T> c : findSubclasses(context, targetClass)) {
             if (!Modifier.isAbstract(c.getModifiers())) {
@@ -68,38 +74,32 @@ public class PackageScanner {
         return classes;
     }
 
-    public static <T> Set<Class<? extends T>> findSubclasses(Context context, Class<T> targetClass) {
-        String packageName = context.getPackageName();
-        String sourcePath = context.getApplicationInfo().sourceDir;
-        List<String> paths = new ArrayList<>();
+    public static <T> Set<Class<? extends T>> findSubclasses(Context context,
+            Class<T> targetClass) {
+        List<String> classNames = new ArrayList<>();
+        ClassLoader classLoader = context.getClassLoader();
 
         Set<Class<? extends T>> classes = new HashSet<>();
         try {
-            if (sourcePath != null && !(new File(sourcePath).isDirectory())) {
+            if (runningOnAndroid()) {
+                String sourcePath = context.getApplicationInfo().sourceDir;
                 DexFile dexfile = new DexFile(sourcePath);
-                Enumeration<String> entries = dexfile.entries();
-
-                while (entries.hasMoreElements()) {
-                    paths.add(entries.nextElement());
+                for (String path : asIterable(dexfile.entries())) {
+                    classNames.add(path);
                 }
-            } else { // JVM fallback
-                ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
-                Enumeration<URL> resources = classLoader.getResources("");
-
-                while (resources.hasMoreElements()) {
-                    String path = resources.nextElement().getFile();
+                classNames.addAll(secondaryDexClassNames(context));
+            } else {
+                // JVM testing
+                for (URL resourceUrl : asIterable(classLoader.getResources(""))) {
+                    String path = resourceUrl.getFile();
                     if (path.contains("bin") || path.contains("classes")) {
-                        paths.add(path);
+                        classNames.addAll(listClassNameFromResourcePath(classLoader, path));
                     }
                 }
             }
 
-            paths.addAll(secondaryDexClassNames(context));
-
-            for (String path : paths) {
-                File file = new File(path);
-                classes = findSubclasses(file, packageName, context.getClassLoader(), targetClass,
-                        classes);
+            for (String className : classNames) {
+                classes = findSubclasses(className, classLoader, targetClass, classes);
             }
         } catch (IOException | PackageManager.NameNotFoundException e) {
             Log.w(TAG, "findSubclasses", e);
@@ -107,52 +107,79 @@ public class PackageScanner {
         return classes;
     }
 
-    static <T> Set<Class<? extends T>> findSubclasses(File path, String packageName, ClassLoader classLoader,
-            Class<? extends T> targetClass,
-            Set<Class<? extends T>> classes) {
-        if (path.isDirectory()) {
-            for (File file : path.listFiles()) {
-                classes = findSubclasses(file, packageName, classLoader, targetClass, classes);
+    // for JVM testing
+    static List<String> listClassNameFromResourcePath(ClassLoader classLoader, String path) {
+        List<String> classNames = new ArrayList<>();
+
+        File file = new File(path);
+        if (file.isDirectory()) {
+            for (File p : file.listFiles()) {
+                classNames.addAll(listClassNameFromResourcePath(classLoader, p.getPath()));
             }
-            return classes;
-        } else {
-            String className = path.getName();
-
-            // JVM fallback
-            if (!path.getPath().equals(className)) {
-                className = path.getPath();
-
-                if (className.endsWith(".class")) {
-                    className = className.substring(0, className.length() - 6);
-                } else {
-                    return classes;
-                }
-
-                className = className.replace(System.getProperty("file.separator"), ".");
-
-                int packageNameIndex = className.lastIndexOf(packageName);
-                if (packageNameIndex < 0) {
-                    return classes;
-                }
-
-                className = className.substring(packageNameIndex);
+        } else if (path.endsWith(".class")) {
+            String className = path.replace(System.getProperty("user.dir"), "")
+                    .replace(".class", "")
+                    .replace(File.separator, ".");
+            if (className.startsWith(".")) {
+                className = className.substring(1);
             }
 
-            try {
-                Class<?> discoveredClass = Class.forName(className, false, classLoader);
-                if (targetClass.isAssignableFrom(discoveredClass)) {
-                    classes.add(PackageScanner.<T>uncheckedClassCast(discoveredClass));
+            while (className.contains(".")) {
+                try {
+                    Class<?> c = Class.forName(className, false, classLoader);
+                    break;
+                } catch (ClassNotFoundException e) {
+                    // no op
                 }
-            } catch (NoClassDefFoundError | ClassNotFoundException | IncompatibleClassChangeError e) {
-                Log.w(TAG, "findSubclasses", e);
+                className = className.substring(className.indexOf(".") + 1);
             }
 
-            return classes;
+            classNames.add(className);
         }
+
+        return classNames;
+    }
+
+    static <T> Set<Class<? extends T>> findSubclasses(String className, ClassLoader classLoader,
+            Class<? extends T> targetClass, Set<Class<? extends T>> classes) {
+
+        try {
+            Class<?> discoveredClass = Class.forName(className, false, classLoader);
+            if (targetClass.isAssignableFrom(discoveredClass)) {
+                classes.add(PackageScanner.<T>uncheckedClassCast(discoveredClass));
+            }
+        } catch (NoClassDefFoundError | ClassNotFoundException | IncompatibleClassChangeError e) {
+            Log.w(TAG, "findSubclasses", e);
+        }
+
+        return classes;
     }
 
     @SuppressWarnings("unchecked")
     static <T> Class<? extends T> uncheckedClassCast(Class<?> k) {
         return (Class<T>) k;
+    }
+
+    static <T> Iterable<T> asIterable(final Enumeration<T> enumeration) {
+        return new Iterable<T>() {
+            @Override
+            public Iterator<T> iterator() {
+                return new Iterator<T>() {
+                    @Override
+                    public boolean hasNext() {
+                        return enumeration.hasMoreElements();
+                    }
+
+                    @Override
+                    public T next() {
+                        return enumeration.nextElement();
+                    }
+
+                    @Override
+                    public void remove() {
+                    }
+                };
+            }
+        };
     }
 }
