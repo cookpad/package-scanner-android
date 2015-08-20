@@ -26,8 +26,6 @@ public class PackageScanner {
     private static final String SECONDARY_FOLDER_NAME = "code_cache" + File.separator
             + "secondary-dexes";
 
-    private static final String EXTRACTED_SUFFIX = ".zip";
-
     static boolean runningOnAndroid() {
         return System.getProperty("java.vm.name").equals("Dalvik");
     }
@@ -46,8 +44,8 @@ public class PackageScanner {
             String path = file.getAbsolutePath();
             try {
                 DexFile dexfile;
-                if (path.endsWith(EXTRACTED_SUFFIX)) {
-                    // NOT use new DexFile(path), because it will throw "permission error in /data/dalvik-cache"
+                if (path.endsWith(".zip")) {
+                    // new DexFile(path) throws "permission error in /data/dalvik-cache"
                     dexfile = DexFile.loadDex(path, path + ".tmp", 0);
                 } else {
                     dexfile = new DexFile(path);
@@ -85,6 +83,7 @@ public class PackageScanner {
                 String sourcePath = context.getApplicationInfo().sourceDir;
                 DexFile dexfile = new DexFile(sourcePath);
                 for (String path : asIterable(dexfile.entries())) {
+                    Log.d(TAG, "XXX path=" + path);
                     classNames.add(path);
                 }
                 classNames.addAll(secondaryDexClassNames(context));
